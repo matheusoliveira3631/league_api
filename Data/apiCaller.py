@@ -1,5 +1,8 @@
 from re import match
+import datetime
+import time
 from dotenv import load_dotenv; load_dotenv();
+
 
 import os;
 import threading;
@@ -11,6 +14,7 @@ from colorama import Style;
 from .config import Config;
 
 
+	
 
 class ApiCaller:
 	def __init__(self) -> None:
@@ -19,6 +23,7 @@ class ApiCaller:
 
 		self.current_key = self.API_KEY;
 		self.current_key_name = "Main";
+		self.last_key_swap = datetime.datetime.now();
 		self.match_list:list=[];
 
 	def apiCall(self, uri:str, *customRoute,**params):
@@ -43,13 +48,15 @@ class ApiCaller:
 					route+="&";
 					n+=1;
 		
-		response = requests.get(route, headers=headers);
-		if(response.status_code==429):
-			self.switchKeys();
+		try:
 			response = requests.get(route, headers=headers);
-		
-			
-		
+			if(response.status_code==429):
+				raise Config.KeyLimitException();
+		except Config.KeyLimitException:
+			self.switchKeys();
+			headers["X-Riot-Token"]=self.current_key;
+			response = requests.get(route, headers=headers);
+
 
 		#logging
 		status=response.status_code
@@ -103,8 +110,10 @@ class ApiCaller:
 		idList:list=[];
 		idMap:dict={};
 
+		
 		self.threadedCalls(self.match_list, idList);
 
+		#self.log(f"Parsed an amount of {n} matches")
 
 		for i in idList:
 			try:
@@ -115,13 +124,23 @@ class ApiCaller:
 		return idMap;
 
 	def switchKeys(self):
-		self.log("API key Rate limit exceeded, switching keys");
-		self.current_key = self.SPARE_KEY if self.current_key == self.API_KEY else self.API_KEY;
-		self.current_key_name = "Spare" if self.current_key_name =="Main" else "Main"
+		time_delta = datetime.datetime.now() - self.last_key_swap;
+		swap_seconds = time_delta.total_seconds();
+		self.log(f"Time since last swap: {swap_seconds} seconds");
+		if swap_seconds > 10:
+			if swap_seconds<120:
+				time.sleep(120-swap_seconds);
+			self.log("API key Rate limit exceeded, switching keys");
+			self.current_key = self.SPARE_KEY if self.current_key == self.API_KEY else self.API_KEY;
+			self.current_key_name = "Spare" if self.current_key_name =="Main" else "Main"
+			self.last_key_swap = datetime.datetime.now();
+			return
+		else:
+			return
 
 	def threadedCalls(self, matchIds:list, callBackList:list)->None:
 		callList:list=[];
-		chunk_size:int=int(len(matchIds)/4);
+		chunk_size:int=int(len(matchIds)/3);
 		while len(matchIds)>=chunk_size:
 			l=[];
 			for i in range(chunk_size):
@@ -135,8 +154,8 @@ class ApiCaller:
 				callList[i].append(matchIds[i]);
 
 		threads:list=[];
-		for i in range(4):
-			thread = threading.Thread(target=self.bulkCalls, args=(callList[i],callBackList));
+		for i in range(3):
+			thread = threading.Thread(target=self.bulkCalls, args=(callList[i],callBackList,));
 			threads.append(thread);
 			thread.start();
 
@@ -152,6 +171,8 @@ class ApiCaller:
 			m:list=self.getMatchBans(mId);
 			for i in m:
 				l.append(i);
+			
 
 	def log(self, msg):
 		print(Fore.BLUE + msg + Style.RESET_ALL);
+

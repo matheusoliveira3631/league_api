@@ -18,3 +18,7 @@ class Main:
 		print(Fore.BLUE + "Appending bans to DataBase" + Style.RESET_ALL);
 		for champion in bans:
 			self.db.increaseBans(champion, bans[champion])
+
+if __name__ == '__main__':
+	m=Main();
+	m.setBans();
